@@ -19,7 +19,9 @@
 	</a>
 </div>
 
-# ioManager
-a C++20 coroutine scheduler with HAL support.
+# aMySQLbuf
+a C++20 coroutine-based high-performance MySQL buffer library
+
+Our advanced aMySQLbuf is totally beyond the old Redis.
 
 ---EXPERIMENTAL LIBRARY---
