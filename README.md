@@ -7,16 +7,8 @@
 	</a>
 	<a href="https://github.com/UF4007/memManager/blob/main/License.txt">
 		<img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
-	</a>
-	<a href="https://www.microsoft.com/en-us/windows">
-		<img src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="win">
-	</a>
 	<a href="https://www.debian.org/">
 		<img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="linux">
-	</a>
-	<a href="https://www.espressif.com/en">
-		<img src="https://www.espressif.com/sites/all/themes/espressif/logo-black.svg" alt="esp" width="75" height="25">
-	</a>
 </div>
 
 # aMySQLbuf
