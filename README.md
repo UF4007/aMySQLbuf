@@ -19,8 +19,8 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 ```C++
 SQLThread                  	asql::table<struct, ...index>		MainThread
 OrderQueue			
-...		<---query---	relative params (keep lifetime) <-----	table member method
-...				|
+...		<---query---	relative params (keep lifetime) <-----	table member method, get coPormise
+...				|					task_await(coPromise)
 ...				|
 async execute			|
 async return	---result-->	coroutine wake			----->	get result
