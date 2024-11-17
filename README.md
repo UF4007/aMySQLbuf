@@ -22,7 +22,7 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 - memManager
 
 ```C++
-SQLThread                  	asql::table<struct, ...index>		MainThread
+SQLThread                  	asql::table<struct, ...index>		MainThread(coroutine)
 OrderQueue			
 ...		<---query---	relative params (keep lifetime) <-----	table member method, get coPormise
 ...				|					task_await(coPromise)
