@@ -24,4 +24,16 @@ a C++20 coroutine-based high-performance MySQL buffer library
 
 Our advanced aMySQLbuf is totally beyond the old Redis.
 
+```C++
+SQLThread                  	asql::table<struct, ...index>		MainThread
+OrderQueue			
+...		<---query---	relative params (keep lifetime) <-----	table member method
+...				|
+...				|
+async execute			|
+async return	---result-->	coroutine wake			----->	get result
+
+each 'index' template in the table struct has a built-in hashmap.
+```
+
 ---EXPERIMENTAL LIBRARY---
