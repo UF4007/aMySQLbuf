@@ -44,6 +44,6 @@ each 'index' template in the asql::table struct has a built-in hashmap.
 - BINARY ----------------------------------> char[]  
 - MEDIUMBLOB ------------------------------> std::string series  
 - BINARY ----------------------------------> via GWPP_Any (memory copy directly)  
-- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME  
+- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME()  
 
 ---EXPERIMENTAL LIBRARY---
