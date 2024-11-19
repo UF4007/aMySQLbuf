@@ -23,13 +23,13 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 
 ### control flow:
 ```C++
-SQLThread                  	asql::table<struct, ...index>		MainThread(coroutine)
+SQLThread                  	asql::table<struct, ...index>				MainThread(coroutine)
 InstructionQueue			
-...		<---query---	relative params (keep lifetime) <-----	table member method, get coPormise
-...				|					task_await(coPromise)
+...		<---query---	relative params (keep lifetime) <---detemplate--	table member method, get coPormise
+...				|							task_await(coPromise)
 ...				|
 async execute			|
-async return	---result-->	coroutine wake			----->	get result
+async return	---result-->	coroutine wake			--------------->	get result
 ```
 ### data structure:
 each 'index' template in the asql::table struct has a built-in hashmap.
