@@ -35,12 +35,12 @@ async return	---result-->	coroutine wake			--------------->	get result
 each 'index' template in the asql::table struct has a built-in hashmap.
 
 ### bind and corresponding C++ type name:
-- TINYINT ---------------------------------> int8[]  
-- SMALLINT --------------------------------> int16[]  
-- INT -------------------------------------> int32[]  
-- BIGINT ----------------------------------> int64[]  
-- FLOAT -----------------------------------> float[]  
-- DOUBLE ----------------------------------> double[]  
+- TINYINT ---------------------------------> int8  
+- SMALLINT --------------------------------> int16  
+- INT -------------------------------------> int32  
+- BIGINT ----------------------------------> int64  
+- FLOAT -----------------------------------> float  
+- DOUBLE ----------------------------------> double  
 - BINARY ----------------------------------> char[]  
 - MEDIUMBLOB ------------------------------> std::string series  
 - DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME()  
