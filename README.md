@@ -21,6 +21,8 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 
 - memManager
 
+- mysql/mariadb develop environment
+
 ### control flow:
 ```C++
 SQLThread                  	asql::table<struct, ...index>				MainThread(coroutine)
@@ -43,6 +45,13 @@ each 'index' template in the asql::table struct has a built-in hashmap.
 - DOUBLE ----------------------------------> double  
 - BINARY ----------------------------------> char[]  
 - MEDIUMBLOB ------------------------------> std::string series  
-- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME()  
+- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME()
+
+### demo
+```C++
+#include "aMySQLbuf/demo.h"
+```
+![demo_table](demo_table.png)
+![demo_row](demo_row.png)
 
 ---EXPERIMENTAL LIBRARY---
