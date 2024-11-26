@@ -27,7 +27,7 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 ```C++
 SQLThread                  	asql::table<struct, ...index>				MainThread(coroutine)
 InstructionQueue			
-...		<---query---	relative params (keep lifetime) <---detemplate--	table member method, get coPormise
+...		<---query---	relative params (keep lifetime) <---detemplate--	table member method
 ...				|							task_await(coPromise)
 ...				|
 async execute			|
@@ -50,6 +50,7 @@ each 'index' template in the asql::table struct has a built-in hashmap.
 ### demo
 ```C++
 #include "aMySQLbuf/demo.h"
+asql_testmain();
 ```
 - MYSQL table structure:  
 ![demo_table](demo_table.png)
