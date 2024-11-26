@@ -51,7 +51,9 @@ each 'index' template in the asql::table struct has a built-in hashmap.
 ```C++
 #include "aMySQLbuf/demo.h"
 ```
+- MYSQL table structure:  
 ![demo_table](demo_table.png)
-![demo_row](demo_row.png)
+- MYSQL table rows:    
+![demo_rows](demo_rows.png)
 
 ---EXPERIMENTAL LIBRARY---
