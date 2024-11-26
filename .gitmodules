@@ -1,0 +1,6 @@
+[submodule "memManager"]
+	path = memManager
+	url = git@github.com:UF4007/memManager.git
+[submodule "ioManager"]
+	path = ioManager
+	url = git@github.com:UF4007/ioManager.git
