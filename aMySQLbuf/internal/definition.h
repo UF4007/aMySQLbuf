@@ -214,26 +214,9 @@ inline io::coTask table<TableStruct, Indexs...>::deletee(io::coPromise<> &prom, 
 
     io::coPromiseStack<> _promLocal(prom.getManager());
     io::coPromise<> promLocal = _promLocal;
-
-    size_t index_where = getMapWhereByKey(key);
     std::vector<MYSQL_BIND> bindr(metadata.size());
-    mem::dumbPtr<TableStruct> found;
 
-    // for erasing the records of this value in all index maps.
-    while (1)
-    {
-        found = tableMap.select(index_where, index);
-        if (found == nullptr)
-            break;
-        if (found.isEmpty())
-            continue;
-        found->SQL_bind(bindr.data());
-        tableMap.unload(found, bindr.data());
-        //found.release();
-    }
-
-    // for erasing the released values (empty memPtr).
-    tableMap.erase(index_where, index);
+    this->unloadMap(key, index);
 
     // MySQL delete, whether the row loaded or not.
     Index first;
@@ -433,6 +416,31 @@ table<TableStruct, Indexs...>::selectMapAll(const char *key, const Index &index)
     size_t index_where = getMapWhereByKey(key);
     return tableMap.selectAll(index_where, index);
 }
+template <typename TableStruct, typename... Indexs>
+template <typename Index>
+inline void table<TableStruct, Indexs...>::unloadMap(const char *key, const Index &index)
+{
+    size_t index_where = getMapWhereByKey(key);
+    MYSQL_BIND bindr[metadata.size()];
+    mem::dumbPtr<TableStruct> found;
+
+    // for erasing the records of this value in all index maps.
+    while (1)
+    {
+        found = tableMap.select(index_where, index);
+        if (found == nullptr)
+            break;
+        if (found.isEmpty())
+            continue;
+        found->SQL_bind(bindr);
+        tableMap.unload(found, bindr);
+        //found.release();
+    }
+
+    // for erasing the released values (empty memPtr).
+    tableMap.erase(index_where, index);
+}
+
 
 
 

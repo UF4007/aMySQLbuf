@@ -6,7 +6,6 @@
 #include <mariadb/mysql.h>
 #include "../ioManager/ioManager.h"
 #include "../memManager/memManager.h"
-#include <mariadb/mysql.h>
 #include <unordered_map>
 #include <concepts>
 #include <ranges>
