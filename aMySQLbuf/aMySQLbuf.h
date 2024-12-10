@@ -4,8 +4,8 @@
 #pragma once
 #define MEM_MYSQL_ON 1
 #include <mariadb/mysql.h>
-#include "../ioManager/ioManager.h"
-#include "../memManager/memManager.h"
+#include "ioManager/ioManager.h"
+#include "memManager/memManager.h"
 #include <unordered_map>
 #include <concepts>
 #include <ranges>
