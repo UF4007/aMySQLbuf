@@ -46,12 +46,21 @@ io::coTask workingCoro(io::coPara para)
     );
     io::coPromise<mem::dumbPtr<asqlTU>> promPtr(para.mngr);
     io::coPromise<> prom(para.mngr);
+    io::coPromise<std::vector<mem::dumbPtr<asqlTU>>> promVec(para.mngr);
 
-    //load all
+    //load all | select all
     prom.reset();
-    testTable.loadAll(prom);
-    task_await(prom);
-    if (prom.isCompleted())
+    if (false)
+    {
+        testTable.loadAll(prom);
+        task_await(prom);
+    }
+    else
+    {
+        testTable.selectAll(promVec, "str", "test 2%");
+        task_await(promVec);
+    }
+    if (prom.isCompleted() || promVec.isCompleted())
         std::cout << "load all success! total size: " << testTable.size() << std::endl;
     else
         std::cout << "load all failed!" << std::endl;

@@ -59,8 +59,11 @@ inline table<TableStruct, Indexs...>::table(mem::memManager *mngr, std::vector<m
 
     //loadall
     oss = std::ostringstream();
-    oss << "SELECT * FROM " << connect_conf.tablename << ";";
+    oss << "SELECT * FROM " << connect_conf.tablename << " ORDER BY " << index_name[0] << " ASC LIMIT ";
     this->instruction_loadall = oss.str();
+    oss = std::ostringstream();
+    oss << "SELECT * FROM " << connect_conf.tablename << " WHERE " << index_name[0] << " > ? ORDER BY " << index_name[0] << " ASC LIMIT ";
+    this->instruction_loadall2 = oss.str();
 
     //lock table read
     oss = std::ostringstream();
@@ -89,6 +92,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
             co_return;
         }
     }
+    size_t where_primary = getMapWhereByKey(index_name[0]);
     MYSQL_STMT* borrow;
     std::atomic_flag *done;
     std::vector<MYSQL_BIND> bindr(metadata.size());
@@ -101,55 +105,93 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
     while (queue == nullptr)
         queue = queue_instr.inbound_get();
 
-    // SELECT * FROM table;
-    queue->emplace_back(&table::loadall_base, promLocal, &borrow, &done);
-
-    queue_instr.inbound_unlock(queue);
-    if (queue_count.fetch_add(1) == 0)
-        queue_count.notify_one();
-
-    task_await(promLocal);
-
-    if (promLocal.isCompleted())
+    // SELECT * FROM table WHERE uid > ? ORDER BY uid ASC LIMIT 1000;
+    std::string instr;
+    constexpr int fetch_len = 1000;
+    bool restring_instr = false;
+    _borrow_para _para;
+    _para.bind_in = nullptr;
+    instr = instruction_loadall;
+    instr += std::to_string(fetch_len);
+    instr += ";";
+    _para.borrow = &borrow;
+    _para.done = &done;
+    _para.instr = instr.c_str();
+    _para.instr_len = instr.size();
+    while(1)
     {
-        // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
-        int i = 0;
-        do
+        queue->emplace_back(&table::genBorrow_base, promLocal, &_para);
+
+        queue_instr.inbound_unlock(queue);
+        if (queue_count.fetch_add(1) == 0)
+            queue_count.notify_one();
+
+        task_await(promLocal);
+
+        if (promLocal.isCompleted())
         {
-            mem::dumbPtr<TableStruct> insertee = new TableStruct(this->getManager());
-            insertee->SQL_bind(metadata, bindr.data(), bind_length.data());
-            mysql_stmt_bind_result(borrow, bindr.data());
-            int ret = mysql_stmt_fetch(borrow);
-            if (ret == MYSQL_NO_DATA)
+            // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
+            int i = 0;
+            size_t num_rows = mysql_stmt_num_rows(borrow);
+            do
             {
-                break;
-            }
-            if (ret == MYSQL_DATA_TRUNCATED)
-            {
-                insertee->SQL_checkstr(bindr.data());
-                mysql_stmt_data_seek(borrow, i);
+                mem::dumbPtr<TableStruct> insertee = new TableStruct(this->getManager());
+                insertee->SQL_bind(metadata, bindr.data(), bind_length.data());
                 mysql_stmt_bind_result(borrow, bindr.data());
-                ret = mysql_stmt_fetch(borrow);
+                int ret = mysql_stmt_fetch(borrow);
                 if (ret == MYSQL_NO_DATA)
                 {
+                    assert(false);
                     break;
                 }
+                if (ret == MYSQL_DATA_TRUNCATED)
+                {
+                    insertee->SQL_checkstr(bindr.data());
+                    mysql_stmt_data_seek(borrow, i);
+                    mysql_stmt_bind_result(borrow, bindr.data());
+                    ret = mysql_stmt_fetch(borrow);
+                    if (ret == MYSQL_NO_DATA)
+                    {
+                        assert(false);
+                        break;
+                    }
+                }
                 tableMap.load(insertee, bindr.data());
+                i++;
+            } while (i < num_rows);
+            done->test_and_set(std::memory_order_release);
+            done->notify_one();
+            if (i == fetch_len)     // there is data rows remaining
+            {
+                _para.bind_in = &bindr[where_primary];
+                if (restring_instr == false)
+                {
+                    instr = instruction_loadall2;
+                    instr += std::to_string(fetch_len);
+                    instr += ";";
+                    _para.instr = instr.c_str();
+                    _para.instr_len = instr.size();
+                    restring_instr = true;
+                }
+                promLocal.reset();
             }
-            i++;
-        } while (1);
-        done->test_and_set(std::memory_order_release);
-        done->notify_one();
-        if (prom.tryOccupy() == io::err::ok)
-        {
-            prom.completeLocal();
-            co_return;
+            else                    // no data rows remaining
+            {
+                if (prom.tryOccupy() == io::err::ok)
+                {
+                    prom.completeLocal();
+                    co_return;
+                }
+            }
         }
-    }
-    if (prom.tryOccupy() == io::err::ok)
-    {
-        prom.abortLocal();
-        co_return;
+        else
+        {
+            if (prom.tryOccupy() == io::err::ok)
+            {
+                prom.abortLocal();
+                co_return;
+            }
+        }
     }
     co_return;
 }
@@ -216,7 +258,7 @@ inline io::coTask table<TableStruct, Indexs...>::deletee(io::coPromise<> &prom, 
     io::coPromise<> promLocal = _promLocal;
     std::vector<MYSQL_BIND> bindr(metadata.size());
 
-    this->unloadMap(key, index);
+    this->unloadLocal(key, index);
 
     // MySQL delete, whether the row loaded or not.
     Index first;
@@ -368,7 +410,7 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
         while (queue == nullptr)
             queue = queue_instr.inbound_get();
 
-        // SELECT * FROM test WHERE uid = ?
+        // SELECT * FROM test WHERE uid LIKE ? ORDER BY uid DESC LIMIT 1;
         queue->emplace_back(&table::select_base, promLocal, &bindr[0], key);
 
         queue_instr.inbound_unlock(queue);
@@ -396,29 +438,176 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
         }
     }
 }
+template <typename TableStruct, typename... Indexs>
+template <typename Index>
+inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, const char *key, const Index &index)
+{
+    if (queue_count.load() > queue_overload_limit)
+    {
+        if (prom.tryOccupy() == io::err::ok)
+        {
+            prom.abortLocal();
+            co_return;
+        }
+    }
+    prom.data()->clear();
+    size_t where_primary = getMapWhereByKey(index_name[0]);
+    MYSQL_STMT *borrow;
+    std::atomic_flag *done;
+    std::vector<MYSQL_BIND> bindr(metadata.size());
+    std::vector<size_t> bind_length(metadata.size());
+
+    io::coPromiseStack<> _promLocal(prom.getManager());
+    io::coPromise<> promLocal = _promLocal;
+
+    std::vector<Delegate> *queue = nullptr;
+    while (queue == nullptr)
+        queue = queue_instr.inbound_get();
+
+    MYSQL_BIND bind_param[2];
+    std::memset(bind_param, 0, sizeof(MYSQL_BIND));
+    Index first;
+    if constexpr (std::is_array_v<Index>)
+    {
+        std::memcpy(&first[0], &index[0], sizeof(index));
+    }
+    else
+    {
+        first = index;
+    }
+    IndexBind(bind_param[0], first);
+
+    // SELECT * FROM table WHERE name LIKE ? AND uid > ? ORDER BY uid ASC LIMIT 1000;
+    std::string instr;
+    constexpr int fetch_len = 1000;
+    bool restring_instr = false;
+    _borrow_para _para;
+    instr = instruction_select;
+    instr += key;
+    instr += " LIKE ? ";
+    instr += "ORDER BY ";
+    instr += metadata[where_primary].key;
+    instr += " ASC LIMIT ";
+    instr += std::to_string(fetch_len);
+    instr += ";";
+    _para.bind_in = bind_param;
+    _para.borrow = &borrow;
+    _para.done = &done;
+    _para.instr = instr.c_str();
+    _para.instr_len = instr.size();
+    while (1)
+    {
+        queue->emplace_back(&table::genBorrow_base, promLocal, &_para);
+
+        queue_instr.inbound_unlock(queue);
+        if (queue_count.fetch_add(1) == 0)
+            queue_count.notify_one();
+
+        task_await(promLocal);
+
+        if (promLocal.isCompleted())
+        {
+            // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
+            int i = 0;
+            size_t num_rows = mysql_stmt_num_rows(borrow);
+            do
+            {
+                mem::dumbPtr<TableStruct> insertee = new TableStruct(this->getManager());
+                insertee->SQL_bind(metadata, bindr.data(), bind_length.data());
+                mysql_stmt_bind_result(borrow, bindr.data());
+                int ret = mysql_stmt_fetch(borrow);
+                if (ret == MYSQL_NO_DATA)
+                {
+                    assert(false);
+                    break;
+                }
+                if (ret == MYSQL_DATA_TRUNCATED)
+                {
+                    insertee->SQL_checkstr(bindr.data());
+                    mysql_stmt_data_seek(borrow, i);
+                    mysql_stmt_bind_result(borrow, bindr.data());
+                    ret = mysql_stmt_fetch(borrow);
+                    if (ret == MYSQL_NO_DATA)
+                    {
+                        assert(false);
+                        break;
+                    }
+                }
+                auto found = tableMap.load(insertee, bindr.data());
+                if (found.isFilled())
+                {
+                    prom.data()->emplace_back(found);
+                }
+                else
+                {
+                    prom.data()->emplace_back(insertee);
+                }
+                i++;
+            } while (i < num_rows);
+            done->test_and_set(std::memory_order_release);
+            done->notify_one();
+            if (i == fetch_len) // there is data rows remaining
+            {
+                bind_param[1] = bindr[where_primary];
+                if (restring_instr == false)
+                {
+                    instr = instruction_select;
+                    instr += key;
+                    instr += " LIKE ? ";
+                    instr += "AND ";
+                    instr += metadata[where_primary].key;
+                    instr += " > ? ";
+                    instr += "ORDER BY ";
+                    instr += metadata[where_primary].key;
+                    instr += " ASC LIMIT ";
+                    instr += std::to_string(fetch_len);
+                    instr += ";";
+                    _para.instr = instr.c_str();
+                    _para.instr_len = instr.size();
+                    restring_instr = true;
+                }
+                promLocal.reset();
+            }
+            else // no data rows remaining
+            {
+                if (prom.tryOccupy() == io::err::ok)
+                {
+                    prom.completeLocal();
+                    co_return;
+                }
+            }
+        }
+        else
+        {
+            if (prom.tryOccupy() == io::err::ok)
+            {
+                prom.abortLocal();
+                co_return;
+            }
+        }
+    }
+    co_return;
+}
 
 
 
 template <typename TableStruct, typename... Indexs>
 template <typename Index>
-inline mem::dumbPtr<TableStruct> table<TableStruct, Indexs...>::selectMap(const char *key, const Index &index)
+inline mem::dumbPtr<TableStruct> table<TableStruct, Indexs...>::selectLocal(const char *key, const Index &index)
 {
     size_t index_where = getMapWhereByKey(key);
     return tableMap.select(index_where, index);
 }
 template <typename TableStruct, typename... Indexs>
 template <typename Index>
-inline std::pair<
-    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator,
-    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator>
-table<TableStruct, Indexs...>::selectMapAll(const char *key, const Index &index)
+inline auto table<TableStruct, Indexs...>::selectLocalAll(const char *key, const Index &index)
 {
     size_t index_where = getMapWhereByKey(key);
     return tableMap.selectAll(index_where, index);
 }
 template <typename TableStruct, typename... Indexs>
 template <typename Index>
-inline void table<TableStruct, Indexs...>::unloadMap(const char *key, const Index &index)
+inline void table<TableStruct, Indexs...>::unloadLocal(const char *key, const Index &index)
 {
     size_t index_where = getMapWhereByKey(key);
     MYSQL_BIND bindr[metadata.size()];
@@ -439,6 +628,11 @@ inline void table<TableStruct, Indexs...>::unloadMap(const char *key, const Inde
 
     // for erasing the released values (empty memPtr).
     tableMap.erase(index_where, index);
+}
+template <typename TableStruct, typename... Indexs>
+inline void table<TableStruct, Indexs...>::clear()
+{
+    tableMap.clear();
 }
 
 
@@ -558,7 +752,7 @@ inline void table<TableStruct, Indexs...>::thread_f(connect_conf_t connect_conf)
                     queue->erase(iter);
                     this->queue_instr.outbound_unlock(queue);
                     this->queue_count--;
-                    deleg(this, my, stmt);
+                    std::invoke(deleg, this, my, stmt);
                 }
                 else
                 {
@@ -738,12 +932,14 @@ inline void table<TableStruct, Indexs...>::select_base(MYSQL *my, MYSQL_STMT *st
     instr.resize(instr_size);
 }
 template <typename TableStruct, typename... Indexs>
-inline void table<TableStruct, Indexs...>::loadall_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, MYSQL_STMT **borrow, std::atomic_flag **done)
+inline void table<TableStruct, Indexs...>::genBorrow_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, _borrow_para* para)
 {
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
-    *borrow = stmt;
-    *done = &flag;
-    mysql_stmt_prepare(stmt, instruction_loadall.c_str(), instruction_loadall.size());
+    *para->borrow = stmt;
+    *para->done = &flag;
+    mysql_stmt_prepare(stmt, para->instr, para->instr_len);
+    if (para->bind_in)
+        mysql_stmt_bind_param(stmt, para->bind_in);
     if (mysql_stmt_execute(stmt) == 0)
     {
         mysql_stmt_store_result(stmt);

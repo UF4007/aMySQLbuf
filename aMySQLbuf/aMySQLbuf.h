@@ -4,34 +4,50 @@
 #pragma once
 #define MEM_MYSQL_ON 1
 #include <mariadb/mysql.h>
-#include "ioManager/ioManager.h"
-#include "memManager/memManager.h"
+#include "../ioManager/ioManager.h"
+#include "../memManager/memManager.h"
 #include <unordered_map>
 #include <concepts>
 #include <ranges>
 #include <functional>
 
+struct asql_unused {};
+bool asql_cmp(asql_unused a, asql_unused b) { return false; }
+size_t asql_hash(asql_unused a) { return 0; }
+
 namespace asql {
     inline namespace v24a
     {
         template <typename T>
+        concept cmp_with_operator = requires(T a, T b) {
+            { a == b } -> std::convertible_to<bool>;
+        };
+
+        template <typename T>
+        concept cmp_with_asql = requires(T a, T b) {
+            { ::asql_cmp(a, b) } -> std::convertible_to<bool>;
+        };
+
+        template <typename T>
         concept hashable_with_std = requires(T t) {
             { std::hash<T>{}(t) };
-            { t == t };
         };
 
         template <typename T>
         concept hashable_with_asql = requires(T t) {
-            { asql_hash(t) } -> std::convertible_to<size_t>;    // index type T has a member function asql_hash()
-            { t == t };                                         // index type T overload operator ==
+            { ::asql_hash(t) } -> std::convertible_to<size_t>;    // index type T has a member function asql_hash()
         };
 
         template <typename T>
-        concept hashable = hashable_with_std<T> || hashable_with_asql<T>;
+        //concept hashable = (hashable_with_std<T> || hashable_with_asql<T>) && (cmp_with_operator<T> || cmp_with_asql<T>);
+        concept hashable = true;
 
         constexpr size_t default_hash_init_size = 1000;
 
-        //hash function prior: custom->std::hash
+        // hash function prior: custom asql_hash -> std::hash
+        // compare function prior: custom asql_cmp -> operator==
+
+
 
         // The first template type is memUnit
         // The second template type is the Primary Index; two rows with the same Primary Index will be identified as the same.
@@ -58,6 +74,51 @@ namespace asql {
 
             using promiseTS = io::coPromise<mem::dumbPtr<TableStruct>>;
             using promiseTSV = io::coPromise<std::vector<mem::dumbPtr<TableStruct>>>;
+            template<typename First, typename... Then>
+            struct primary_type{
+                using type = First;
+            };
+            using primary_key_t = primary_type<Indexs...>::type;
+            template <typename _Index>
+            struct _hash
+            {
+                inline size_t operator()(const _Index &index) const
+                {
+                    if constexpr (hashable_with_asql<_Index>)
+                    {
+                        return ::asql_hash(index);
+                    }
+                    else if constexpr (hashable_with_std<_Index>)
+                    {
+                        return std::hash<_Index>{}(index);
+                    }
+                    else
+                    {
+                        static_assert(hashable<_Index>, "Index type is not hashable");
+                        return 0;
+                    }
+                }
+            };
+            template <typename _Index>
+            struct _equal
+            {
+                inline bool operator()(const _Index &lhs, const _Index &rhs) const
+                {
+                    if constexpr (cmp_with_asql<_Index>)
+                    {
+                        return ::asql_cmp(lhs, rhs);
+                    }
+                    else if constexpr (cmp_with_operator<_Index>)
+                    {
+                        return lhs == rhs;
+                    }
+                    else
+                    {
+                        static_assert(hashable<_Index>, "Index type is not compareable");
+                        return 0;
+                    }
+                }
+            };
 
             //async functions
 
@@ -86,18 +147,24 @@ namespace asql {
             template <typename Index, typename Index_Alt>
             io::coTask updateIndex(io::coPromise<> &prom, const char *key, const Index &index, const char *key_alt, const Index_Alt &index_alt);
 
-            // select specific FIRST row in loaded map by index, if not found, async select FIRST where index fit via SQL and then load it
+            // select specific FIRST row by index, if not found, async select FIRST where index fit via SQL and then load it
             // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to judge load or not
             template <typename Index>
             io::coTask select(promiseTS &prom, const char *key, const Index &index);
 
-            // select specific ALL rows in loaded map by index, always async select ALL where index fit via SQL and then load them all
+            // select specific ALL rows by index, always async select ALL where index fit via SQL and then load them all
+            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to judge load or not
             template <typename Index>
             io::coTask selectAll(promiseTSV &prom, const char *key, const Index &index);
 
+            // select specific ALL ranged rows by index, always async select ALL where index fit via SQL and then load them all
+            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to judge load or not
+            template <typename Index>
+            io::coTask selectRange(promiseTSV &prom, std::pair<std::tuple<const char *, const Index &>, std::tuple<const char *, const Index &>> range);
+
             // reload specific ALL loaded row by index
             template <typename Index>
-            io::coTask reload(promiseTS &prom, const char *key, const Index &index);
+            io::coTask reload(io::coPromise<> &prom, const char *key, const Index &index);
 
             // async execute raw instrution via SQL. forced to use stmt.
             // char*, MYSQL_BIND must be accessible until the promise return.
@@ -112,17 +179,18 @@ namespace asql {
 
             // select FIRST row by index in loaded hash map only
             template <typename Index>
-            mem::dumbPtr<TableStruct> selectMap(const char *key, const Index &index);
+            mem::dumbPtr<TableStruct> selectLocal(const char *key, const Index &index);
 
             // select ALL row by index in loaded hash map only
             template <typename Index>
-            std::pair<
-             typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator,
-             typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator> selectMapAll(const char *key, const Index &index);
+            auto selectLocalAll(const char *key, const Index &index);
 
             // make specific ALL loaded row unload
             template <typename Index>
-            void unloadMap(const char *key, const Index &index);
+            void unloadLocal(const char *key, const Index &index);
+
+            // clean all loaded rows
+            void clear();
 
             // clean all loaded rows that no one is using, nullptr
             void cleanVacancy();
@@ -132,6 +200,7 @@ namespace asql {
             inline size_t size() { return tableMap.map.size(); }
 
         private:
+            struct _borrow_para;
             // our advanced delegate has totally beyond the old std::function
             class Delegate
             {
@@ -142,8 +211,7 @@ namespace asql {
                     io::coPromise<> co_promise;
                     const char *str_ptr;
                     MYSQL_BIND *bind_ptr;
-                    MYSQL_STMT **borrow;
-                    std::atomic_flag **done;
+                    _borrow_para *borrow;
                     uint64_t raw;
 
                     inline Param() : raw(0) {}
@@ -156,7 +224,7 @@ namespace asql {
                     Delete,
                     Update,
                     Select,
-                    LoadAll
+                    Borrow
                 };
 
                 struct Storage
@@ -193,7 +261,7 @@ namespace asql {
                     using DeleteType = decltype(&table::delete_base);
                     using UpdateType = decltype(&table::update_base);
                     using SelectType = decltype(&table::select_base);
-                    using LoadAllType = decltype(&table::loadall_base);
+                    using BorrowType = decltype(&table::genBorrow_base);
 
                     if constexpr (std::is_same_v<Func, InsertType>)
                     {
@@ -213,10 +281,10 @@ namespace asql {
                         if (func == &table::select_base)
                             return FuncType::Select;
                     }
-                    else if constexpr (std::is_same_v<Func, LoadAllType>)
+                    else if constexpr (std::is_same_v<Func, BorrowType>)
                     {
-                        if (func == &table::loadall_base)
-                            return FuncType::LoadAll;
+                        if (func == &table::genBorrow_base)
+                            return FuncType::Borrow;
                     }
 
                     assert(!"Unknown function type");
@@ -279,11 +347,10 @@ namespace asql {
                                     storage.params[1].bind_ptr,
                                     storage.params[2].str_ptr);
                         break;
-                    case FuncType::LoadAll:
-                        std::invoke(&table::loadall_base, pthis, my, stmt,
+                    case FuncType::Borrow:
+                        std::invoke(&table::genBorrow_base, pthis, my, stmt,
                                     storage.params[0].co_promise,
-                                    storage.params[1].borrow,
-                                    storage.params[2].done);
+                                    storage.params[1].borrow);
                         break;
                     }
                 }
@@ -312,34 +379,8 @@ namespace asql {
             template <int layer, typename _Index, typename... _Indexs>
             struct table_map_t<layer, _Index, _Indexs...>
             {
-                struct _hash
-                {
-                    inline size_t operator()(const _Index &index) const noexcept
-                    {
-                        if constexpr (hashable_with_asql<_Index>)
-                        {
-                            return index.asql_hash();
-                        }
-                        else if constexpr (hashable_with_std<_Index>)
-                        {
-                            return std::hash<_Index>{}(index);
-                        }
-                        else
-                        {
-                            static_assert(hashable<_Index>, "Index type is not hashable");
-                            return 0;
-                        }
-                    }
-                };
-                struct _equal
-                {
-                    inline bool operator()(const _Index &lhs, const _Index &rhs) const noexcept
-                    {
-                        return lhs == rhs;
-                    }
-                };
 
-                std::unordered_multimap<_Index, mem::dumbPtr<TableStruct>, _hash, _equal> map;
+                std::unordered_multimap<_Index, mem::dumbPtr<TableStruct>, _hash<_Index>, _equal<_Index>> map;
                 table_map_t<layer + 1, _Indexs...> next;
                 size_t index_where; //where the metadata this index is
                 inline table_map_t(size_t IndexMapInitSize,
@@ -357,19 +398,21 @@ namespace asql {
                     }
                     assert(!"table init error: index name mismatch the metadata!");
                 };
+                // if an existing struct (identified as the same primary index) was found, return the pointer of the existing struct, otherwise return nullptr.
                 inline mem::dumbPtr<TableStruct> load(mem::dumbPtr<TableStruct> &insertee, MYSQL_BIND *bind)
                 {
                     MYSQL_BIND &bindi = *(bind + index_where);
-                    _Index first;
-                    void *firstptr;
+                    std::pair<_Index, mem::dumbPtr<TableStruct>> newPair;
+                    _Index &first = (_Index &)newPair.first;
+                    uint8_t *firstptr;
                     if constexpr(std::is_same_v<_Index, std::string>)
                     {
                         first.resize(*bindi.length);
-                        firstptr = (void *)first.c_str();
+                        firstptr = (uint8_t *)first.data();
                     }
                     else
                     {
-                        firstptr = (void *)&first;
+                        firstptr = (uint8_t *)&first;
                     }
                     memcpy(firstptr, bindi.buffer, bindi.buffer_length);
                     if constexpr (layer == 0)
@@ -378,24 +421,25 @@ namespace asql {
                         if (found != map.end())
                             return found->second;
                     }
-                    map.insert(std::pair<_Index, mem::dumbPtr<TableStruct>>(first, insertee));
+                    newPair.second = insertee;
+                    map.insert(newPair);
                     if constexpr (sizeof...(_Indexs) > 0)
-                        next.load(insertee, bind);
+                        return next.load(insertee, bind);
                     return nullptr;
                 }
                 inline void unload(mem::dumbPtr<TableStruct> &insertee, MYSQL_BIND *bind)
                 {
                     MYSQL_BIND &bindi = *(bind + index_where);
                     _Index first;
-                    void *firstptr;
+                    uint8_t *firstptr;
                     if constexpr (std::is_same_v<_Index, std::string>)
                     {
                         first.resize(bindi.buffer_length);
-                        firstptr = (void *)first.c_str();
+                        firstptr = (uint8_t *)first.data();
                     }
                     else
                     {
-                        firstptr = (void *)&first;
+                        firstptr = (uint8_t *)&first;
                     }
                     memcpy(firstptr, bindi.buffer, bindi.buffer_length);
                     auto range = map.equal_range(first);
@@ -413,7 +457,7 @@ namespace asql {
                 template <typename Index>
                 inline void erase(size_t where, const Index &index)
                 {
-                    if constexpr (std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
+                    if constexpr (std::is_same<_Index, Index>::value || std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
                     {
                         if (where == index_where)
                         {
@@ -429,7 +473,7 @@ namespace asql {
                 template <typename Index>
                 inline mem::dumbPtr<TableStruct> select(size_t where, const Index &index)
                 {
-                    if constexpr (std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
+                    if constexpr (std::is_same<_Index, Index>::value || std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
                     {
                         if (where == index_where)
                         {
@@ -452,11 +496,12 @@ namespace asql {
                 }
                 template <typename Index>
                 inline std::pair<
-                    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator,
-                    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator>
+                    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>, _hash<Index>, _equal<Index>>::iterator,
+                    typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>, _hash<Index>, _equal<Index>>::iterator>
                 selectAll(size_t where, const Index &index)
                 {
-                    if constexpr (std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
+                    using IteratorType = typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>, _hash<Index>, _equal<Index>>::iterator;
+                    if constexpr (std::is_same<_Index, Index>::value || std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value)
                     {
                         if (where == index_where)
                         {
@@ -467,8 +512,12 @@ namespace asql {
                         return next.selectAll(where, index);
                     else
                         assert(!"Index ERROR: Index type or name mismatch!");
-                    using IteratorType = typename std::unordered_multimap<Index, mem::dumbPtr<TableStruct>>::iterator;
                     return std::make_pair(IteratorType(), IteratorType());
+                }
+                void clear(){
+                    map.clear();
+                    if constexpr (sizeof...(_Indexs) > 0)
+                        next.clear();
                 }
                 template <typename Index>
                 inline void updateIndex(mem::dumbPtr<TableStruct> ptr, size_t where, Index &index);
@@ -480,6 +529,7 @@ namespace asql {
             std::vector<const char *> index_name;
             size_t metadata_write_sum = 0;
             std::string instruction_loadall;
+            std::string instruction_loadall2;
             std::string instruction_insert;
             std::string instruction_delete;
             std::string instruction_update;
@@ -493,12 +543,19 @@ namespace asql {
             io::dualBuffer<std::vector<Delegate>> queue_instr; // LIFO
             static constexpr size_t queue_overload_limit = 100; // The new SQL instruction will always fail if more than 100 instructions are pending.
 
-            void loadall_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, MYSQL_STMT **borrow, std::atomic_flag **done); // borrow a SQL thread (connect) to process multi-row fetch relative stuff.
+            struct _borrow_para
+            {
+                MYSQL_BIND *bind_in;
+                MYSQL_STMT **borrow;
+                std::atomic_flag **done;
+                const char* instr;
+                size_t instr_len;
+            };
+            void genBorrow_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, _borrow_para* para); // borrow a SQL thread (connect) to process multi-row fetch relative stuff. requires to entry the kernel mode
             void insert_base(MYSQL *my, MYSQL_STMT *stmt, promiseTS &prom, MYSQL_BIND *bindr);
             void delete_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, const char *key, MYSQL_BIND *bindr);
             void update_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<> &prom, const char *key, MYSQL_BIND *bindr);
             void select_base(MYSQL *my, MYSQL_STMT *stmt, promiseTS &prom, MYSQL_BIND *bindr, const char *key);
-            void raw_base(MYSQL *my, MYSQL_STMT *stmt, io::coPromise<const char *> &prom, MYSQL_BIND *bindw, MYSQL_BIND *bindr);
 
             size_t getMapWhereByKey(const char* key);
             template<typename Index>
