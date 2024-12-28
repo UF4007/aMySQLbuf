@@ -45,7 +45,8 @@ each 'index' template in the asql::table struct has a built-in hashmap.
 - DOUBLE ----------------------------------> double  
 - BINARY ----------------------------------> char[]  
 - MEDIUMBLOB ------------------------------> std::string series  
-- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME()
+- DATETIME --------------------------------> MYSQL_TIME, via GWPP_SQL_TIME(),
+  - use mem::memUnit::tp_to_SQL_TIME()/SQL_TIME_to_tp() to convert to std::chrono::system_clock::time_point
 
 ### demo
 ```C++
