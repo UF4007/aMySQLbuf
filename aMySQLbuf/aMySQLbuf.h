@@ -422,7 +422,7 @@ namespace asql {
                             return found->second;
                     }
                     newPair.second = insertee;
-                    map.insert(newPair);
+                    map.insert(reinterpret_cast<std::pair<const _Index, mem::dumbPtr<TableStruct>> &>(newPair));
                     if constexpr (sizeof...(_Indexs) > 0)
                         return next.load(insertee, bind);
                     return nullptr;
