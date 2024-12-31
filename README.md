@@ -50,7 +50,10 @@ each 'index' template in the asql::table struct has a built-in hashmap.
  
 - **Be careful with the sequence between the fields in the MySQL table and the GWPP of save_fetch in the C++ struct!** 
 
-you can load the /cppGenerate.sql procedure into your database to generate the cpp code automatically.
+you can load the '/cppGenerate.sql' procedure into your database to generate the cpp code automatically. for example:
+```SQL
+CALL GenerateCppCode('table_name');
+```
 
 ### demo
 ```C++
