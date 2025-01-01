@@ -134,26 +134,19 @@ namespace asql {
             template <typename Index>
             io::coTask deletee(io::coPromise<> &prom, const char *key, const Index &index);
 
-            // update a single row by index, always async via SQL
-            // ignore all indexs and readonly variable
-            // If more than one row under the specific index has been found, the promise will abort and do nothing with SQL
+            // update a single row by primary index, always async via SQL
+            // ignore the primary index and all the readonly variables
             // The thread ownership of memPtr(row) will borrow to SQL operation thread until promise return. Do not EDIT anyway.
             template <typename Index>
-            io::coTask update(io::coPromise<> &prom, const char *key, const Index &index);
-
-            // select a single row using one index, and use another index to specify the target index, always async via SQL
-            // If more than one row under the primary index has been found, the promise will abort and do nothing with SQL
-            // The thread ownership of memPtr(row) will borrow to SQL operation thread until promise return. Do not EDIT anyway.
-            template <typename Index, typename Index_Alt>
-            io::coTask updateIndex(io::coPromise<> &prom, const char *key, const Index &index, const char *key_alt, const Index_Alt &index_alt);
+            io::coTask update(io::coPromise<> &prom, const Index &primary_index);
 
             // select specific FIRST row by index, if not found, async select FIRST where index fit via SQL and then load it
-            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to judge load or not
+            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to distinguish two rows
             template <typename Index>
             io::coTask select(promiseTS &prom, const char *key, const Index &index);
 
             // select specific ALL rows by index, always async select ALL where index fit via SQL and then load them all
-            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to judge load or not
+            // If given param is not an index in table<>, asycn select via SQL always, and compare with first index(primary index) to distinguish two rows
             template <typename Index>
             io::coTask selectAll(promiseTSV &prom, const char *key, const Index &index);
 
@@ -176,6 +169,12 @@ namespace asql {
 
 
             // local functions (sync)
+
+            // designate the Auxiliary index which value will be changed, and needs to reposition within the table build-in hash map
+            // the value of the Primary index cannot be change
+            // this function will not change the index value within the ptr Struct
+            template <typename Index, typename Index_alt>
+            void relocateIndexLocal(mem::dumbPtr<TableStruct> &ptr, const char *key, const Index &old_value, const Index_alt &new_value);
 
             // select FIRST row by index in loaded hash map only
             template <typename Index>
@@ -398,7 +397,7 @@ namespace asql {
                     }
                     assert(!"table init error: index name mismatch the metadata!");
                 };
-                // if an existing struct (identified as the same primary index) was found, return the pointer of the existing struct, otherwise return nullptr.
+                // if an existing struct (distinguished as the same primary index) was found, return the pointer of the existing struct, otherwise return nullptr.
                 inline mem::dumbPtr<TableStruct> load(mem::dumbPtr<TableStruct> &insertee, MYSQL_BIND *bind)
                 {
                     MYSQL_BIND &bindi = *(bind + index_where);
@@ -514,13 +513,49 @@ namespace asql {
                         assert(!"Index ERROR: Index type or name mismatch!");
                     return std::make_pair(IteratorType(), IteratorType());
                 }
-                void clear(){
+                inline void clear()
+                {
                     map.clear();
                     if constexpr (sizeof...(_Indexs) > 0)
                         next.clear();
                 }
-                template <typename Index>
-                inline void updateIndex(mem::dumbPtr<TableStruct> ptr, size_t where, Index &index);
+                template <typename Index, typename Index_alt>
+                inline void relocateIndex(mem::dumbPtr<TableStruct> &ptr, size_t where, const Index &old_value, const Index_alt &new_value)
+                {
+                    if constexpr ((std::is_same<_Index, Index>::value || std::is_convertible<_Index, Index>::value || std::is_constructible<_Index, Index>::value) &&
+                                  (std::is_same<_Index, Index_alt>::value || std::is_convertible<_Index, Index_alt>::value || std::is_constructible<_Index, Index_alt>::value))
+                    {
+                        if (where == index_where)
+                        {
+                            auto range = map.equal_range(old_value);
+                            for (auto it = range.first; it != range.second; ++it)
+                            {
+                                if (it->second == ptr)
+                                {
+                                    //old value has been found, and erase
+                                    map.erase(it);
+                                    break;
+                                }
+                            }
+                            // re-insert
+                            std::pair<_Index, mem::dumbPtr<TableStruct>> newPair;
+                            if constexpr (std::is_array_v<_Index> && std::is_array_v<Index_alt>)
+                            {
+                                memcpy(&newPair.first, &new_value, sizeof(_Index));
+                            }
+                            else
+                            {
+                                newPair.first = new_value;
+                            }
+                            map.insert(reinterpret_cast<std::pair<const _Index, mem::dumbPtr<TableStruct>> &>(newPair));
+                            return;
+                        }
+                    }
+                    if constexpr (sizeof...(_Indexs) > 0)
+                        return next.relocateIndex(ptr, where, old_value, new_value);
+                    else
+                        assert(!"Index ERROR: Index type or name mismatch!");
+                }
             };
 
 

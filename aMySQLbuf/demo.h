@@ -100,11 +100,17 @@ io::coTask workingCoro(io::coPara para)
 
 
 
+        // relocate test 2 -> test 3
+        testTable.relocateIndexLocal(test2, "str", test2->str, "test 3");
+        test2->str = "test 3";
+
+
+
         // update test 2 -> Artanis and time
         prom.reset();
         test2->time = mem::memUnit::tp_to_SQL_TIME(std::chrono::system_clock::now() + std::chrono::hours(8));
         std::strcpy(test2->name, "Artanis");
-        testTable.update(prom, "uid", test2->uid);
+        testTable.update(prom, test2->uid);
         task_await(prom);
         if (prom.isCompleted())
             std::cout << "update success!" << std::endl;

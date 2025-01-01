@@ -133,7 +133,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
             // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
             int i = 0;
             size_t num_rows = mysql_stmt_num_rows(borrow);
-            do
+            while (i < num_rows)
             {
                 mem::dumbPtr<TableStruct> insertee = new TableStruct(this->getManager());
                 insertee->SQL_bind(metadata, bindr.data(), bind_length.data());
@@ -158,7 +158,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
                 }
                 tableMap.load(insertee, bindr.data());
                 i++;
-            } while (i < num_rows);
+            }
             done->test_and_set(std::memory_order_release);
             done->notify_one();
             if (i == fetch_len)     // there is data rows remaining
@@ -302,12 +302,12 @@ inline io::coTask table<TableStruct, Indexs...>::deletee(io::coPromise<> &prom, 
 }
 template <typename TableStruct, typename... Indexs>
 template <typename Index>
-inline io::coTask table<TableStruct, Indexs...>::update(io::coPromise<> &prom, const char *key, const Index &index)
+inline io::coTask table<TableStruct, Indexs...>::update(io::coPromise<> &prom, const Index &primary_index)
 {
-    size_t index_where = getMapWhereByKey(key);
-    auto found = tableMap.selectAll(index_where, index);
+    constexpr size_t index_where = 0;
+    auto found = tableMap.selectAll(index_where, primary_index);
 
-    //if found more than 1 or not found, abort
+    //if found more than 1 primary index or not found, abort
     if (queue_count.load() > queue_overload_limit || std::distance(found.first, found.second) != 1)
     {
         if (prom.tryOccupy() == io::err::ok)
@@ -327,8 +327,8 @@ inline io::coTask table<TableStruct, Indexs...>::update(io::coPromise<> &prom, c
     while (queue == nullptr)
         queue = queue_instr.inbound_get();
 
-    // UPDATE test SET name = ?, time = ?, arr = ? WHERE uid = ?
-    queue->emplace_back(&table::update_base, promLocal, key, &bindr[0]);
+    // UPDATE test SET name = ?, str = ?, time = ? WHERE uid = ?
+    queue->emplace_back(&table::update_base, promLocal, index_name[index_where], &bindr[0]);
 
     queue_instr.inbound_unlock(queue);
     if (queue_count.fetch_add(1) == 0)
@@ -510,7 +510,7 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
             // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
             int i = 0;
             size_t num_rows = mysql_stmt_num_rows(borrow);
-            do
+            while (i < num_rows)
             {
                 mem::dumbPtr<TableStruct> insertee = new TableStruct(this->getManager());
                 insertee->SQL_bind(metadata, bindr.data(), bind_length.data());
@@ -543,7 +543,7 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
                     prom.data()->emplace_back(insertee);
                 }
                 i++;
-            } while (i < num_rows);
+            }
             done->test_and_set(std::memory_order_release);
             done->notify_one();
             if (i == fetch_len) // there is data rows remaining
@@ -591,6 +591,13 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
 
 
 
+template <typename TableStruct, typename... Indexs>
+template <typename Index, typename Index_alt>
+inline void table<TableStruct, Indexs...>::relocateIndexLocal(mem::dumbPtr<TableStruct> &ptr, const char *key, const Index &old_value, const Index_alt &new_value)
+{
+    size_t index_where = getMapWhereByKey(key);
+    return tableMap.relocateIndex(ptr, index_where, old_value, new_value);
+}
 template <typename TableStruct, typename... Indexs>
 template <typename Index>
 inline mem::dumbPtr<TableStruct> table<TableStruct, Indexs...>::selectLocal(const char *key, const Index &index)
@@ -843,19 +850,12 @@ inline void table<TableStruct, Indexs...>::update_base(MYSQL *my, MYSQL_STMT *st
     for (const auto &meta : metadata)
     {
         bool is_break = false;
-        //exclude index
-        for (const auto& ik : index_name)
-        {
-            if (std::strcmp(meta.key, ik) == 0)
-            {
-                is_break = true;
-                break;
-            }
-        }
-        //WHERE = ?
+        // exclude primary index
         if (std::strcmp(meta.key, key) == 0)
         {
+            // WHERE = ?
             bind[metadata.size() - 1] = bindr[i];
+            is_break = true;
         }
         //exclude readonly
         if (meta.readonly == false && is_break == false)
