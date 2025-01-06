@@ -22,7 +22,7 @@ struct asqlTU: mem::memUnit{
 
 io::ioManager workingThread;
 
-io::coTask workingCoro(io::coPara para)
+io::coTask workingCoro(io::ioManager* para)
 {
     // set database config
     connect_conf_t sw_database;
@@ -44,23 +44,23 @@ io::coTask workingCoro(io::coPara para)
                                                                                           1000,           // initial size of hash bucket
                                                                                           1               // connect sum(one connect as one thread)
     );
-    io::coPromise<mem::dumbPtr<asqlTU>> promPtr(para.mngr);
-    io::coPromise<> prom(para.mngr);
-    io::coPromise<std::vector<mem::dumbPtr<asqlTU>>> promVec(para.mngr);
+    io::coPromise<mem::dumbPtr<asqlTU>> promPtr(para);
+    io::coPromise<> prom(para);
+    io::coPromise<std::vector<mem::dumbPtr<asqlTU>>> promVec(para);
 
     //load all | select all
     prom.reset();
     if (false)
     {
         testTable.loadAll(prom);
-        task_await(prom);
+        co_await *(prom);
     }
     else
     {
         testTable.selectAll(promVec, "str", "test 2%");
-        task_await(promVec);
+        co_await *(promVec);
     }
-    if (prom.isCompleted() || promVec.isCompleted())
+    if (prom.isResolve() || promVec.isResolve())
         std::cout << "load all success! total size: " << testTable.size() << std::endl;
     else
         std::cout << "load all failed!" << std::endl;
@@ -70,8 +70,8 @@ io::coTask workingCoro(io::coPara para)
         // select Artanis
         promPtr.reset();
         testTable.select(promPtr, "name", "Artanis%");
-        task_await(promPtr);
-        if (promPtr.isCompleted())
+        co_await *(promPtr);
+        if (promPtr.isResolve())
             std::cout << "select Artanis success!" << std::endl;
         else
             std::cout << "select Artanis failed!" << std::endl;
@@ -84,7 +84,7 @@ io::coTask workingCoro(io::coPara para)
         *promPtr.data() = test1;
         promPtr.data()->operator*()->str = "test 1";
         testTable.insert(promPtr);
-        task_await(promPtr);
+        co_await *(promPtr);
 
         promPtr.reset();
         mem::memPtr<asqlTU> test2 = new asqlTU(nullptr);
@@ -92,8 +92,8 @@ io::coTask workingCoro(io::coPara para)
         // promPtr.data()->operator*()->str = "test 1";
         promPtr.data()->operator*()->str = "test 2";
         testTable.insert(promPtr);
-        task_await(promPtr);
-        if (promPtr.isCompleted())
+        co_await *(promPtr);
+        if (promPtr.isResolve())
             std::cout << "insert success!" << std::endl;
         else
             std::cout << "insert failed!" << std::endl;
@@ -111,8 +111,8 @@ io::coTask workingCoro(io::coPara para)
         test2->time = mem::memUnit::tp_to_SQL_TIME(std::chrono::system_clock::now() + std::chrono::hours(8));
         std::strcpy(test2->name, "Artanis");
         testTable.update(prom, test2->uid);
-        task_await(prom);
-        if (prom.isCompleted())
+        co_await *(prom);
+        if (prom.isResolve())
             std::cout << "update success!" << std::endl;
         else
             std::cout << "update failed!" << std::endl;
@@ -122,8 +122,8 @@ io::coTask workingCoro(io::coPara para)
         // delete all test 1, whether in the memory or SQL
         prom.reset();
         testTable.deletee(prom, "str", "test 1");
-        task_await(prom);
-        if (prom.isCompleted())
+        co_await *(prom);
+        if (prom.isResolve())
             std::cout << "delete success!" << std::endl;
         else
             std::cout << "delete failed!" << std::endl;

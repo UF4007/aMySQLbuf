@@ -88,7 +88,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -126,9 +126,9 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
         if (queue_count.fetch_add(1) == 0)
             queue_count.notify_one();
 
-        task_await(promLocal);
+        co_await *promLocal;
 
-        if (promLocal.isCompleted())
+        if (promLocal.isResolve())
         {
             // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
             int i = 0;
@@ -179,7 +179,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
             {
                 if (prom.tryOccupy() == io::err::ok)
                 {
-                    prom.completeLocal();
+                    prom.resolveLocal();
                     co_return;
                 }
             }
@@ -188,7 +188,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
         {
             if (prom.tryOccupy() == io::err::ok)
             {
-                prom.abortLocal();
+                prom.rejectLocal();
                 co_return;
             }
         }
@@ -202,7 +202,7 @@ inline io::coTask table<TableStruct, Indexs...>::insert(promiseTS &prom)
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -222,12 +222,12 @@ inline io::coTask table<TableStruct, Indexs...>::insert(promiseTS &prom)
     if (queue_count.fetch_add(1) == 0)
         queue_count.notify_one();
 
-    task_await(promLocal);
-    if (promLocal.isCompleted() && tableMap.load(*promLocal.data(), bindr.data()).isEmpty())
+    co_await *(promLocal);
+    if (promLocal.isResolve() && tableMap.load(*promLocal.data(), bindr.data()).isEmpty())
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.completeLocal();
+            prom.resolveLocal();
             co_return;
         }
     }
@@ -235,7 +235,7 @@ inline io::coTask table<TableStruct, Indexs...>::insert(promiseTS &prom)
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -249,7 +249,7 @@ inline io::coTask table<TableStruct, Indexs...>::deletee(io::coPromise<> &prom, 
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -284,18 +284,18 @@ inline io::coTask table<TableStruct, Indexs...>::deletee(io::coPromise<> &prom, 
     if (queue_count.fetch_add(1) == 0)
         queue_count.notify_one();
 
-    task_await(promLocal);
-    if (promLocal.isCompleted())
+    co_await *(promLocal);
+    if (promLocal.isResolve())
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.completeLocal();
+            prom.resolveLocal();
             co_return;
         }
     }
     if (prom.tryOccupy() == io::err::ok)
     {
-        prom.abortLocal();
+        prom.rejectLocal();
         co_return;
     }
     co_return;
@@ -312,7 +312,7 @@ inline io::coTask table<TableStruct, Indexs...>::update(io::coPromise<> &prom, c
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -334,18 +334,18 @@ inline io::coTask table<TableStruct, Indexs...>::update(io::coPromise<> &prom, c
     if (queue_count.fetch_add(1) == 0)
         queue_count.notify_one();
 
-    task_await(promLocal);
-    if (promLocal.isCompleted())
+    co_await *(promLocal);
+    if (promLocal.isResolve())
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.completeLocal();
+            prom.resolveLocal();
             co_return;
         }
     }
     if (prom.tryOccupy() == io::err::ok)
     {
-        prom.abortLocal();
+        prom.rejectLocal();
         co_return;
     }
     co_return;
@@ -373,7 +373,7 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
             if (prom.tryOccupy() == io::err::ok)
             {
                 *prom.data() = found;
-                prom.completeLocal();
+                prom.resolveLocal();
                 co_return;
             }
         }
@@ -383,7 +383,7 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -417,8 +417,8 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
         if (queue_count.fetch_add(1) == 0)
             queue_count.notify_one();
 
-        task_await(promLocal);
-        if (promLocal.isCompleted())
+        co_await *(promLocal);
+        if (promLocal.isResolve())
         {
             if (prom.tryOccupy() == io::err::ok)
             {
@@ -427,13 +427,13 @@ inline io::coTask table<TableStruct, Indexs...>::select(promiseTS &prom, const c
                     *prom.data() = *promLocal.data();
                 else                // primary index has been found exist, use found ptr and release new
                     *prom.data() = found;
-                prom.completeLocal();
+                prom.resolveLocal();
                 co_return;
             }
         }
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -446,7 +446,7 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
     {
         if (prom.tryOccupy() == io::err::ok)
         {
-            prom.abortLocal();
+            prom.rejectLocal();
             co_return;
         }
     }
@@ -503,9 +503,9 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
         if (queue_count.fetch_add(1) == 0)
             queue_count.notify_one();
 
-        task_await(promLocal);
+        co_await *(promLocal);
 
-        if (promLocal.isCompleted())
+        if (promLocal.isResolve())
         {
             // borrow successfully, fetch rows that were stored locally. it costs no io blocking.
             int i = 0;
@@ -572,7 +572,7 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
             {
                 if (prom.tryOccupy() == io::err::ok)
                 {
-                    prom.completeLocal();
+                    prom.resolveLocal();
                     co_return;
                 }
             }
@@ -581,7 +581,7 @@ inline io::coTask table<TableStruct, Indexs...>::selectAll(promiseTSV &prom, con
         {
             if (prom.tryOccupy() == io::err::ok)
             {
-                prom.abortLocal();
+                prom.rejectLocal();
                 co_return;
             }
         }
@@ -798,7 +798,7 @@ inline void table<TableStruct, Indexs...>::insert_base(MYSQL *my, MYSQL_STMT *st
         {
             if (ret == MYSQL_NO_DATA)
             {
-                prom.abort();
+                prom.reject();
                 break;
             }
             if (ret == MYSQL_DATA_TRUNCATED)
@@ -809,17 +809,17 @@ inline void table<TableStruct, Indexs...>::insert_base(MYSQL *my, MYSQL_STMT *st
                 ret = mysql_stmt_fetch(stmt);
                 if (ret == MYSQL_NO_DATA)
                 {
-                    prom.abort();
+                    prom.reject();
                     break;
                 }
             }
-            prom.complete();
+            prom.resolve();
         } while (0);
         mysql_stmt_free_result(stmt);
     }
     else
     {
-        prom.abort();
+        prom.reject();
     }
 }
 template <typename TableStruct, typename... Indexs>
@@ -833,9 +833,9 @@ inline void table<TableStruct, Indexs...>::delete_base(MYSQL *my, MYSQL_STMT *st
     mysql_stmt_prepare(stmt, instr.c_str(), instr.size());
     mysql_stmt_bind_param(stmt, bindr);
     if (mysql_stmt_execute(stmt) == 0)
-        prom.complete();
+        prom.resolve();
     else
-        prom.abort();
+        prom.reject();
 
     instr.resize(instr_size);
 }
@@ -881,9 +881,9 @@ inline void table<TableStruct, Indexs...>::update_base(MYSQL *my, MYSQL_STMT *st
     mysql_stmt_prepare(stmt, instr.c_str(), instr.size());
     mysql_stmt_bind_param(stmt, bind);
     if (mysql_stmt_execute(stmt) == 0)
-        prom.complete();
+        prom.resolve();
     else
-        prom.abort();
+        prom.reject();
 
     instr.resize(instr_size);
 }
@@ -910,7 +910,7 @@ inline void table<TableStruct, Indexs...>::select_base(MYSQL *my, MYSQL_STMT *st
     do{
         if (ret == MYSQL_NO_DATA)
         {
-            prom.abort();
+            prom.reject();
             break;
         }
         if (ret == MYSQL_DATA_TRUNCATED)
@@ -921,11 +921,11 @@ inline void table<TableStruct, Indexs...>::select_base(MYSQL *my, MYSQL_STMT *st
             ret = mysql_stmt_fetch(stmt);
             if (ret == MYSQL_NO_DATA)
             {
-                prom.abort();
+                prom.reject();
                 break;
             }
         }
-        prom.complete();
+        prom.resolve();
     } while(0);
     mysql_stmt_free_result(stmt);
 
@@ -943,10 +943,10 @@ inline void table<TableStruct, Indexs...>::genBorrow_base(MYSQL *my, MYSQL_STMT 
     if (mysql_stmt_execute(stmt) == 0)
     {
         mysql_stmt_store_result(stmt);
-        prom.complete();
+        prom.resolve();
         flag.wait(0);
         mysql_stmt_free_result(stmt);
     }
     else
-        prom.abort();
+        prom.reject();
 }
