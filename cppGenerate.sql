@@ -94,28 +94,28 @@ BEGIN
         cpp_gwpp,
         '    }\n\n',
         '    ', typename, '(mem::memManager *m) : memUnit(m) {}\n',
-        '    using table_t = asql::table<', typename,', >;\n',
-        '    static table_t& getTable()\n',
+        '};\n',
+        '    using ',table_name_input,'_table_t = asql::table<',typename,', >;\n',
+        '    inline ',table_name_input,'_table_t& getTable',table_name_input,'()\n',
         '        {
             static asql::connect_conf_t db = {
                 .host = "127.0.0.1",
-                .user = "iot",
-                .passwd = "1",
+                .user = ???,
+                .passwd = ???,
                 .db = "',DATABASE(),'",
                 .tablename = "',table_name_input,'",
                 .port = 3306,
             };
             static auto metadata = mem::memUnit::get_SQL_metadata<',typename,'>();
-            static table_t _table = table_t(nullptr,  // not use memManager, cannot use normal serialize/deserialize, and mem garbage collector. if you need, add one.
+            static ',table_name_input,'_table_t _table = ',table_name_input,'_table_t(nullptr,  // not use memManager, cannot use normal serialize/deserialize, and mem garbage collector. if you need, add one.
                                             metadata, //
                                             db,       //
                                             {???}, // Index column name
                                             100,      // initial size of hash bucket
                                             1         // connect sum(one connect as one thread)
-            );
+            ); 
             return _table;
-        }\n',
-        '};\n'
+        }\n'
     );
     
     SELECT @cpp_code AS Generated_CPP_Code;
