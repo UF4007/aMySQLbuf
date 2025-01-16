@@ -19,22 +19,22 @@ namespace asql {
     inline namespace v24a
     {
         template <typename T>
-        concept cmp_with_operator = requires(T a, T b) {
+        concept cmp_with_operator = requires(const T &a, const T &b) {
             { a == b } -> std::convertible_to<bool>;
         };
 
         template <typename T>
-        concept cmp_with_asql = requires(T a, T b) {
+        concept cmp_with_asql = requires(const T &a, const T &b) {
             { ::asql_cmp(a, b) } -> std::convertible_to<bool>;
         };
 
         template <typename T>
-        concept hashable_with_std = requires(T t) {
+        concept hashable_with_std = requires(const T &t) {
             { std::hash<T>{}(t) };
         };
 
         template <typename T>
-        concept hashable_with_asql = requires(T t) {
+        concept hashable_with_asql = requires(const T &t) {
             { ::asql_hash(t) } -> std::convertible_to<size_t>;    // index type T has a member function asql_hash()
         };
 
@@ -94,7 +94,7 @@ namespace asql {
                     }
                     else
                     {
-                        static_assert(hashable<_Index>, "Index type is not hashable");
+                        assert(!"Index type is not hashable");
                         return 0;
                     }
                 }
@@ -114,7 +114,7 @@ namespace asql {
                     }
                     else
                     {
-                        static_assert(hashable<_Index>, "Index type is not compareable");
+                        assert(!"Index type is not compareable");
                         return 0;
                     }
                 }
@@ -128,7 +128,7 @@ namespace asql {
             // insert, always async via SQL, after SQL return, load the new row to each index hashmap
             // The thread ownership of memPtr(row) will borrow to SQL operation thread until promise return. Do not EDIT anyway.
             // if the same primary index exists, the insert will fail.
-            io::coTask insert(promiseTS &prom);
+            io::coTask insert(io::coPromise<> &prom, mem::dumbPtr<TableStruct>& pointer);
 
             // delete specific ALL rows by index, always async via SQL
             template <typename Index>

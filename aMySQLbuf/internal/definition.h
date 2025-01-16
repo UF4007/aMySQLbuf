@@ -196,7 +196,7 @@ inline io::coTask table<TableStruct, Indexs...>::loadAll(io::coPromise<> &prom)
     co_return;
 }
 template <typename TableStruct, typename... Indexs>
-inline io::coTask table<TableStruct, Indexs...>::insert(promiseTS &prom)
+inline io::coTask table<TableStruct, Indexs...>::insert(io::coPromise<> &prom, mem::dumbPtr<TableStruct>& pointer)
 {
     if (queue_count.load() > queue_overload_limit)
     {
@@ -207,7 +207,7 @@ inline io::coTask table<TableStruct, Indexs...>::insert(promiseTS &prom)
         }
     }
 
-    io::coPromiseStack<mem::dumbPtr<TableStruct>> _promLocal(prom.getManager(), *prom.data());
+    io::coPromiseStack<mem::dumbPtr<TableStruct>> _promLocal(prom.getManager(), pointer);
     io::coPromise<mem::dumbPtr<TableStruct>> promLocal = _promLocal;
     std::vector<MYSQL_BIND> bindr(metadata.size());
 

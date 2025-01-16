@@ -57,7 +57,7 @@ io::coTask workingCoro(io::ioManager* para)
     }
     else
     {
-        testTable.selectAll(promVec, "str", "test 2%");
+        testTable.selectAll(promVec, "str", "test 3%");
         co_await *(promVec);
     }
     if (prom.isResolve() || promVec.isResolve())
@@ -79,19 +79,17 @@ io::coTask workingCoro(io::ioManager* para)
 
 
         // insert
-        promPtr.reset();
+        prom.reset();
         mem::memPtr<asqlTU> test1 = new asqlTU(nullptr);
-        *promPtr.data() = test1;
-        promPtr.data()->operator*()->str = "test 1";
-        testTable.insert(promPtr);
-        co_await *(promPtr);
+        test1->str = "test 1";
+        testTable.insert(prom, test1);
+        co_await *(prom);
 
-        promPtr.reset();
+        prom.reset();
         mem::memPtr<asqlTU> test2 = new asqlTU(nullptr);
-        *promPtr.data() = test2;
-        // promPtr.data()->operator*()->str = "test 1";
-        promPtr.data()->operator*()->str = "test 2";
-        testTable.insert(promPtr);
+        // test1->str = "test 1";
+        test1->str = "test 2";
+        testTable.insert(prom, test2);
         co_await *(promPtr);
         if (promPtr.isResolve())
             std::cout << "insert success!" << std::endl;
