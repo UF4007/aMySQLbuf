@@ -87,11 +87,11 @@ io::coTask workingCoro(io::ioManager* para)
 
         prom.reset();
         mem::memPtr<asqlTU> test2 = new asqlTU(nullptr);
-        // test1->str = "test 1";
-        test1->str = "test 2";
+        // test2->str = "test 1";
+        test2->str = "test 2";
         testTable.insert(prom, test2);
-        co_await *(promPtr);
-        if (promPtr.isResolve())
+        co_await *(prom);
+        if (prom.isResolve())
             std::cout << "insert success!" << std::endl;
         else
             std::cout << "insert failed!" << std::endl;
