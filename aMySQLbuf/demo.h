@@ -3,27 +3,28 @@
 
 using namespace asql;
 
-struct asqlTU: mem::memUnit{
+struct asqlTU: eb::base{
     uint64_t uid;
     char name[10];
     std::string str;
     MYSQL_TIME time;
 
     std::vector<int> irrelevant;
-    void save_fetch(mem::memPara para)override{
+    void save_fetch(eb::para para)override{
         GWPP_SQL_READ("uid", uid, para); // read only, AUTO_INCREMENT was set in SQL
         GWPP("name", name, para);
         GWPP("irrelevant", irrelevant, para); // unsupported variable type will have nothing to do with the MySQL table.
         GWPP("str", str, para);
         GWPP_SQL_TIME("time", time, para);
     }
-    asqlTU(mem::memManager *m):memUnit(m){}
+    asqlTU(eb::manager *m):base(m){}
 };
 
-io::ioManager workingThread;
+io::manager workingThread;
 
-io::coTask workingCoro(io::ioManager* para)
+io::fsm_func<void> workingCoro()
 {
+    io::fsm<void>& fsm = co_await io::get_fsm;
     // set database config
     connect_conf_t sw_database;
     sw_database.host = "127.0.0.1";
@@ -33,8 +34,8 @@ io::coTask workingCoro(io::ioManager* para)
     sw_database.tablename = "test";
     sw_database.port = 3306;
 
-    // get metadata info of memUnit type
-    auto metadata = mem::memUnit::get_SQL_metadata<asqlTU>();
+    // get metadata info of eb::base type
+    auto metadata = eb::base::get_SQL_metadata<asqlTU>();
 
     // create table
     table<asqlTU, uint64_t, std::string> testTable = table<asqlTU, uint64_t, std::string>(nullptr,        // not use memManager, cannot use normal serialize/deserialize, and mem garbage collector. if you need, add one.
@@ -44,34 +45,36 @@ io::coTask workingCoro(io::ioManager* para)
                                                                                           1000,           // initial size of hash bucket
                                                                                           1               // connect sum(one connect as one thread)
     );
-    io::coPromise<mem::dumbPtr<asqlTU>> promPtr(para);
-    io::coPromise<> prom(para);
-    io::coPromise<std::vector<mem::dumbPtr<asqlTU>>> promVec(para);
+    io::future future;
+    io::future_with<eb::dumbPtr<asqlTU>> future_ptr;
+    io::future_with<std::vector<eb::dumbPtr<asqlTU>>> future_vec;
 
     //load all | select all
-    prom.reset();
     if (false)
     {
-        testTable.loadAll(prom);
-        co_await *(prom);
+        testTable.loadAll(fsm, future);
+        co_await future;
+        if (!future.getErr())
+            std::cout << "load all success! total size: " << testTable.size() << std::endl;
+        else
+            std::cout << "load all failed!" << std::endl;
     }
     else
     {
-        testTable.selectAll(promVec, "str", "test 3%");
-        co_await *(promVec);
+        testTable.selectAll(fsm, future_vec, "str", "test 3%");
+        co_await future_vec;
+        if (!future_vec.getErr())
+            std::cout << "load all success! total size: " << testTable.size() << std::endl;
+        else
+            std::cout << "load all failed!" << std::endl;
     }
-    if (prom.isResolve() || promVec.isResolve())
-        std::cout << "load all success! total size: " << testTable.size() << std::endl;
-    else
-        std::cout << "load all failed!" << std::endl;
 
     while (1)
     {
         // select Artanis
-        promPtr.reset();
-        testTable.select(promPtr, "name", "Artanis%");
-        co_await *(promPtr);
-        if (promPtr.isResolve())
+        testTable.select(fsm, future_ptr, "name", "Artanis%");
+        co_await future_ptr;
+        if (!future_ptr.getErr())
             std::cout << "select Artanis success!" << std::endl;
         else
             std::cout << "select Artanis failed!" << std::endl;
@@ -79,19 +82,17 @@ io::coTask workingCoro(io::ioManager* para)
 
 
         // insert
-        prom.reset();
-        mem::memPtr<asqlTU> test1 = new asqlTU(nullptr);
+        eb::memPtr<asqlTU> test1 = new asqlTU(nullptr);
         test1->str = "test 1";
-        testTable.insert(prom, test1);
-        co_await *(prom);
+        testTable.insert(fsm, future, test1);
+        co_await future;
 
-        prom.reset();
-        mem::memPtr<asqlTU> test2 = new asqlTU(nullptr);
+        eb::memPtr<asqlTU> test2 = new asqlTU(nullptr);
         // test2->str = "test 1";
         test2->str = "test 2";
-        testTable.insert(prom, test2);
-        co_await *(prom);
-        if (prom.isResolve())
+        testTable.insert(fsm, future, test2);
+        co_await future;
+        if (!future.getErr())
             std::cout << "insert success!" << std::endl;
         else
             std::cout << "insert failed!" << std::endl;
@@ -105,12 +106,11 @@ io::coTask workingCoro(io::ioManager* para)
 
 
         // update test 2 -> Artanis and time
-        prom.reset();
-        test2->time = mem::memUnit::tp_to_SQL_TIME(std::chrono::system_clock::now() + std::chrono::hours(8));
+        test2->time = eb::base::tp_to_SQL_TIME(std::chrono::system_clock::now() + std::chrono::hours(8));
         std::strcpy(test2->name, "Artanis");
-        testTable.update(prom, test2->uid);
-        co_await *(prom);
-        if (prom.isResolve())
+        testTable.update(fsm, future, test2->uid);
+        co_await future;
+        if (!future.getErr())
             std::cout << "update success!" << std::endl;
         else
             std::cout << "update failed!" << std::endl;
@@ -118,10 +118,9 @@ io::coTask workingCoro(io::ioManager* para)
 
 
         // delete all test 1, whether in the memory or SQL
-        prom.reset();
-        testTable.deletee(prom, "str", "test 1");
-        co_await *(prom);
-        if (prom.isResolve())
+        testTable.deletee(fsm, future, "str", "test 1");
+        co_await future;
+        if (!future.getErr())
             std::cout << "delete success!" << std::endl;
         else
             std::cout << "delete failed!" << std::endl;
@@ -131,7 +130,7 @@ io::coTask workingCoro(io::ioManager* para)
 }
 
 void asql_testmain(){
-    workingThread.once(workingCoro);
+    workingThread.spawn_later(workingCoro()).detach();
     while(1)
     {
         workingThread.drive();
