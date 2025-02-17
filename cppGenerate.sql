@@ -42,7 +42,7 @@ BEGIN
     SET typename = CONCAT(table_name_input, '_t');
     
     SET @cpp_code = CONCAT(
-        'struct ', typename, ' : mem::memUnit\n',
+        'struct ', typename, ' : eb::base\n',
         '{\n'
     );
     
@@ -90,10 +90,10 @@ BEGIN
     
     -- 添加save_fetch和构造函数
     SET @cpp_code = CONCAT(@cpp_code, 
-        '\n    void save_fetch(mem::memPara para) override\n    {\n',
+        '\n    void save_fetch(eb::para para) override\n    {\n',
         cpp_gwpp,
         '    }\n\n',
-        '    ', typename, '(mem::memManager *m) : memUnit(m) {}\n',
+        '    ', typename, '(eb::manager *m) : eb::base(m) {}\n',
         '};\n',
         '    using ',table_name_input,'_table_t = asql::table<',typename,', >;\n',
         '    inline ',table_name_input,'_table_t& getTable',table_name_input,'()\n',
@@ -106,7 +106,7 @@ BEGIN
                 .tablename = "',table_name_input,'",
                 .port = 3306,
             };
-            static auto metadata = mem::memUnit::get_SQL_metadata<',typename,'>();
+            static auto metadata = eb::base::get_SQL_metadata<',typename,'>();
             static ',table_name_input,'_table_t _table = ',table_name_input,'_table_t(nullptr,  // not use memManager, cannot use normal serialize/deserialize, and mem garbage collector. if you need, add one.
                                             metadata, //
                                             db,       //
