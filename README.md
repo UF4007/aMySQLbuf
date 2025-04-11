@@ -12,7 +12,7 @@
 </div>
 
 # aMySQLbuf
-async C++20 coroutine-based high-performance MySQL buffer library
+async C++20 coroutine-based MySQL buffer library
 
 Our advanced aMySQLbuf is totally beyond the old Redis.
 
