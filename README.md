@@ -19,7 +19,7 @@ Our advanced aMySQLbuf is totally beyond the old Redis.
 ### dependency:
 - ioManager
 
-- memManager
+- ebManager
 
 - mysql/mariadb develop environment
 
